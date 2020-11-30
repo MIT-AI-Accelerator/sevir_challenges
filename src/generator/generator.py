@@ -166,6 +166,28 @@ class SEVIRGenerator():
         self._compute_samples()
         self._open_files(verbose=self.verbose)
     
+    def get_batch(self,i, return_meta=False):
+        """
+        Returns the i-th batch from the selected SEVIR entries.
+        
+        Parameters
+        ----------
+        i int
+          batch number between 0 and __len__()
+        return_meta bool
+           If true, metadata of samples is also returned. 
+           
+        Returns
+        -------
+        If return_meta is False:
+           returns X   if self.y_img_types is None
+              else returns (X,Y) 
+        Elif return_meta is True:
+            returns X,meta    if self.y_img_types is None
+              else returns (X,Y),meta 
+        
+        """
+    
     def load_batches(self,
                      n_batches=10,
                      offset=0,
@@ -253,7 +275,6 @@ class SEVIRGenerator():
             except ImportError:
                 pass # okay when python shutting down
 
-
     def __len__(self):
         """
         How many batches to generate per epoch
@@ -267,15 +288,10 @@ class SEVIRGenerator():
             return min(self.n_batch_per_epoch,max_n)
         else:
             return max_n
-        
+    
     def __getitem__(self, idx):
         """
-        batch_x = self.x[idx * self.batch_size:(idx + 1) * self.batch_size]
-        batch_y = self.y[idx * self.batch_size:(idx + 1) * self.batch_size]
-
-        return np.array([
-            resize(imread(file_name), (200, 200))
-               for file_name in batch_x]), np.array(batch_y)    
+        Simple wrapper of get_batch that allowed the class to be used as a generator    
         """
         batch = self._get_batch_samples(idx)
         data = {}
@@ -291,7 +307,23 @@ class SEVIRGenerator():
                 Y = [SEVIRGenerator.normalize(Y[k],s) for k,s in enumerate(self.normalize_y)]
             return X,Y
         else:
-            return X    
+            return X  
+        
+    def get_sevir_metadata(self,idx):
+        """
+        Returns the SEVIR IDs for batch index
+        """
+        cols = ['time_utc','episode_id','event_id','event_type',
+                'llcrnrlat','llcrnrlon','urcrnrlat','urcrnrlon','proj','height_m','width_m']            
+        batch = self._get_batch_samples(idx)
+        imgtyps = np.unique([x.split('_')[0] for x in list(batch.keys())])
+        meta=[]
+        for k,i in enumerate([v[0] for v in batch.index.values]):
+            m = self.catalog[self.catalog.id==i].iloc[0][cols]
+            if self.unwrap_time: # adjust time
+                m['time_utc']+=pd.Timedelta(seconds=FRAME_TIMES[batch.iloc[k][f'{imgtyps[0]}_time_index']])
+            meta.append(m)
+        return pd.DataFrame(meta)
         
     def _get_batch_samples(self,idx):
         return self._samples.iloc[idx * self.batch_size:(idx + 1) * self.batch_size]
@@ -378,7 +410,7 @@ class SEVIRGenerator():
         filtcat = self.catalog[ np.logical_or.reduce([self.catalog.img_type==i for i in imgt]) ]
         # remove rows missing one or more requested img_types
         filtcat = filtcat.groupby('id').filter(lambda x: imgts.issubset(set(x['img_type'])))
-        # If there are repeated IDs, remove them (this is a bug in SEVIR)
+        # If there are repeated IDs, remove them 
         filtcat = filtcat.groupby('id').filter(lambda x: x.shape[0]==len(imgt))
         self._samples = filtcat.groupby('id').apply( lambda df: self._df_to_series(df,imgt) )
         if self.shuffle:
@@ -387,8 +419,8 @@ class SEVIRGenerator():
 
     def _df_to_series(self,df,imgt):
         N_FRAMES=49  # TODO:  don't hardcode this
-        d = {}
         df = df.set_index('img_type')
+        d={}
         for i in imgt:
             s = df.loc[i]
             idx = s.file_index if i!='lght' else s.id 

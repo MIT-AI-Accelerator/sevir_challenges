@@ -1,0 +1,12 @@
+scipy
+pandas
+matplotlib
+tensorflow-gpu
+jupyter
+cartopy
+opencv
+pytorch
+torchvision
+tqdm
+h5py
+

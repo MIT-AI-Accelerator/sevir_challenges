@@ -2,7 +2,8 @@
 Makes training and test dataset for radar nowcasting model
 """
 
-# -*- coding: utf-8 -*-
+import sys
+sys.path.append('..') # add src to path
 import argparse
 import logging
 import datetime
@@ -14,7 +15,7 @@ os.environ["HDF5_USE_FILE_LOCKING"]='FALSE'
 import sys
 import numpy as np
 
-from src.data.generator import SEVIRGenerator
+from src.generator import SEVIRGenerator
 
 def parse_args():
   parser = argparse.ArgumentParser(description='Make nowcast training & test datasets using SEVIR')
@@ -68,6 +69,7 @@ def read_write_chunks( filename, generator, n_chunks, input_types, output_types 
       with h5py.File(filename, 'w') as hf:
         hf.create_dataset('IN_%s' % input_types[i], data=x,  maxshape=(None,x.shape[1],x.shape[2],x.shape[3]))
     for i,y in enumerate(Y):
+      with h5py.File(filename, 'a') as hf:
         hf.create_dataset('OUT_%s' % output_types[i], data=y, maxshape=(None,y.shape[1],y.shape[2],y.shape[3]))
     # Gather other chunks
     for c in range(1,n_chunks+1):

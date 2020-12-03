@@ -14,6 +14,7 @@ os.environ["HDF5_USE_FILE_LOCKING"]='FALSE'
 
 import sys
 import numpy as np
+import pandas as pd
 
 from src.generator import SEVIRGenerator
 
@@ -24,8 +25,11 @@ def parse_args():
   parser.add_argument('--sevir_data', type=str, help='location of SEVIR dataset',default='../../data/sevir')
   parser.add_argument('--sevir_catalog', type=str, help='location of SEVIR dataset',default='../../data/CATALOG.csv')
   parser.add_argument('--output_location', type=str, help='location of SEVIR dataset',default='../../data/processeed')
+  parser.add_argument('--n_train',type=int,help='Maximum number of samples to use for training (None=all)',default=None)
+  parser.add_argument('--n_test',type=int,help='Maximum number of samples to use for testing (None=all)',default=None)
   parser.add_argument('--n_chunks', type=int, help='Number of chucks to use (increase if memory limited)',default=20)
   parser.add_argument('--split_date', type=str, help='Day (yymmdd) to split train and test',default='190601')
+    
 
   args = parser.parse_args()
   return args
@@ -47,7 +51,7 @@ def main(args):
     tst_generator = get_nowcast_test_generator(sevir_catalog=args.sevir_catalog,
                                                sevir_location=args.sevir_data,
                                                x_types=args.input_types,
-                                                y_types=args.output_types,
+                                               y_types=args.output_types,
                                                start_date=split_date )
     
     logger.info('Reading/writing training data to %s' % ('%s/nowcast_training.h5' % args.output_location))
@@ -101,8 +105,8 @@ class NowcastGenerator(SEVIRGenerator):
                                [----13----][----12----]
                                           [-----13----][----12----]
     """
-    def __getitem__(self, idx):
-        X,_ = super(NowcastGenerator, self).__getitem__(idx)  # N,L,W,49
+    def get_batch(self, idx,return_meta=False):
+        (X,_),meta = super(NowcastGenerator, self).get_batch(idx,return_meta=True)  # N,L,W,49
         x_out,y_out=[],[]
         for t in range(len(X)):
           x1,x2,x3 = X[0][:,:,:,:13],X[0][:,:,:,12:25],X[0][:,:,:,24:37]
@@ -111,7 +115,15 @@ class NowcastGenerator(SEVIRGenerator):
           Ynew = np.concatenate((y1,y2,y3),axis=0)
           x_out.append(Xnew)
           y_out.append(Ynew)
-        return x_out,y_out
+        if return_meta:
+            # meta is duplicated three times, with adjusted times
+            meta['minute_offsets']=':'.join([str(n) for n in range(-60,65,5)])
+            meta1,meta2,meta3=meta,meta,meta
+            meta1['time_utc'] = meta['time_utc'] - pd.Timedelta(hours=1)
+            meta3['time_utc'] = meta['time_utc'] + pd.Timedelta(hours=1)
+            return (x_out,y_out),pd.concat((meta1,meta2,meta3))
+        else:
+            return x_out,y_out
 
 def get_nowcast_train_generator(sevir_catalog,
                                 sevir_location,
@@ -119,7 +131,8 @@ def get_nowcast_train_generator(sevir_catalog,
                                 y_types=['vil'],
                                 batch_size=8,
                                 start_date=None,
-                                end_date=datetime.datetime(2019,6,1) ):
+                                end_date=datetime.datetime(2019,6,1),
+                                **kwargs):
     filt = lambda c:  c.pct_missing==0 # remove samples with missing radar data
     return NowcastGenerator(catalog=sevir_catalog,
                             sevir_data_home=sevir_location,
@@ -128,7 +141,8 @@ def get_nowcast_train_generator(sevir_catalog,
                             batch_size=batch_size,
                             start_date=start_date,
                             end_date=end_date,
-                            catalog_filter=filt)
+                            catalog_filter=filt,
+                            **kwargs)
 
 def get_nowcast_test_generator(sevir_catalog,
                                sevir_location,
@@ -136,7 +150,8 @@ def get_nowcast_test_generator(sevir_catalog,
                                y_types=['vil'],
                                batch_size=8,
                                start_date=datetime.datetime(2019,6,1),
-                               end_date=None):
+                               end_date=None,
+                               **kwargs):
     filt = lambda c:  c.pct_missing==0 # remove samples with missing radar data
     return NowcastGenerator(catalog=sevir_catalog,
                             sevir_data_home=sevir_location,
@@ -145,7 +160,8 @@ def get_nowcast_test_generator(sevir_catalog,
                             batch_size=batch_size,
                             start_date=start_date,
                             end_date=end_date,
-                            catalog_filter=filt)
+                            catalog_filter=filt,
+                            **kwargs)
 
 
 if __name__ == '__main__':

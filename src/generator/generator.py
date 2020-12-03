@@ -166,14 +166,14 @@ class SEVIRGenerator():
         self._compute_samples()
         self._open_files(verbose=self.verbose)
     
-    def get_batch(self,i, return_meta=False):
+    def get_batch(self,idx, return_meta=False):
         """
-        Returns the i-th batch from the selected SEVIR entries.
+        Returns selected batch from the selected SEVIR entries.
         
         Parameters
         ----------
-        i int
-          batch number between 0 and __len__()
+        idx int
+          batch index between 0 and __len__()
         return_meta bool
            If true, metadata of samples is also returned. 
            
@@ -187,11 +187,51 @@ class SEVIRGenerator():
               else returns (X,Y),meta 
         
         """
+        batch = self._get_batch_samples(idx)
+        data = {}
+        for index, row in batch.iterrows():
+            data = self._read_data(row,data)
+        X = [data[t].astype(self.output_type) for t in self.x_img_types]
+        if self.normalize_x:
+            X = [SEVIRGenerator.normalize(X[k],s) for k,s in enumerate(self.normalize_x)]
+
+        if self.y_img_types is not None:
+            Y = [data[t].astype(self.output_type) for t in self.y_img_types]
+            if self.normalize_y:
+                Y = [SEVIRGenerator.normalize(Y[k],s) for k,s in enumerate(self.normalize_y)]
+            out=X,Y
+        else:
+            out=X
+        
+        if return_meta:
+            meta=self.get_batch_metadata(idx)
+            return out,meta
+        else:
+            return out
+        
+    def get_batch_metadata(self,idx):
+        """
+        Returns the SEVIR IDs for batch index
+        """
+        # return only these cols (independent of img_type)
+        cols = ['time_utc','episode_id','event_id','event_type','minute_offsets',
+                'llcrnrlat','llcrnrlon','urcrnrlat','urcrnrlon','proj','height_m','width_m']            
+        batch = self._get_batch_samples(idx)
+        imgtyps = np.unique([x.split('_')[0] for x in list(batch.keys())])
+        meta=[]
+        for k,i in enumerate([v[0] for v in batch.index.values]):
+            m = self.catalog[self.catalog.id==i].iloc[0][cols]
+            if self.unwrap_time: # adjust time to exact time of image
+                m['time_utc']+=pd.Timedelta(seconds=FRAME_TIMES[batch.iloc[k][f'{imgtyps[0]}_time_index']])
+                m.pop('minute_offsets')
+            meta.append(m)
+        return pd.DataFrame(meta)
     
     def load_batches(self,
                      n_batches=10,
                      offset=0,
-                     progress_bar=False):
+                     progress_bar=False,
+                     return_meta=False):
         """
         Loads a selected number of batches into memory.  This returns the concatenated
         result of [self.__getitem__(i+offset) for i in range(n_batches)]
@@ -207,6 +247,8 @@ class SEVIRGenerator():
             batch offset to apply
         progress_bar  bool
             Show a progress bar during loading (requires tqdm module)
+        return_meta bool
+            If true, returns metadata in addition to images.  See self.get_batch
 
         """
         if progress_bar:
@@ -230,20 +272,28 @@ class SEVIRGenerator():
 
         bidx=0
         if self.y_img_types is None: # one output
-            X = None
+            X=None
+            meta=None
             for i in RW( range(offset,offset+n_batches) ):
-                Xi = self.__getitem__(i)
+                Xi = self.get_batch(i,return_meta=False)
                 if X is None:
                     shps = [out_shape(n_batches,xi.shape[1:],xi.shape[0]) for xi in Xi] 
                     X = [np.empty( s,dtype=DTYPES[k] ) for s,k in zip(shps,self.x_img_types)]
                 for ii,xi in enumerate(Xi):
                     X[ii][bidx:bidx+xi.shape[0]] = xi
                 bidx+=xi.shape[0]
-            return X
+                if return_meta:
+                    meta_i=self.get_batch_metadata(i)
+                    meta = meta_i if meta is None else pd.concat((meta,meta_i)) 
+            if return_meta:
+                return X
+            else:
+                return X,meta
+                
         else:
             X,Y=None,None
             for i in RW( range(offset,offset+n_batches) ):
-                Xi,Yi = self.__getitem__(i)
+                Xi,Yi = self.get_batch(i,return_meta=False)
                 if X is None:
                     shps_x = [out_shape(n_batches,xi.shape[1:],xi.shape[0]) for xi in Xi]
                     shps_y = [out_shape(n_batches,yi.shape[1:],yi.shape[0]) for yi in Yi]
@@ -254,9 +304,18 @@ class SEVIRGenerator():
                 for ii,yi in enumerate(Yi):
                     Y[ii][bidx:bidx+yi.shape[0]] = yi   
                 bidx+=xi.shape[0]
-            return X,Y
+                if return_meta:
+                    meta_i=self.get_batch_metadata(i)
+                    meta = meta_i if meta is None else pd.concat((meta,meta_i)) 
+            if return_meta:
+                return (X,Y),meta
+            else:
+                return X,Y
 
     def on_epoch_end(self):
+        """
+        Used e.g. in tensorflow datagenerators.  Shuffles rows after epoch ends
+        """
         if self.shuffle:
             self._samples.sample(frac=1,random_state=self.shuffle_seed)
     
@@ -293,37 +352,8 @@ class SEVIRGenerator():
         """
         Simple wrapper of get_batch that allowed the class to be used as a generator    
         """
-        batch = self._get_batch_samples(idx)
-        data = {}
-        for index, row in batch.iterrows():
-            data = self._read_data(row,data)
-        X = [data[t].astype(self.output_type) for t in self.x_img_types]
-        if self.normalize_x:
-            X = [SEVIRGenerator.normalize(X[k],s) for k,s in enumerate(self.normalize_x)]
-
-        if self.y_img_types is not None:
-            Y = [data[t].astype(self.output_type) for t in self.y_img_types]
-            if self.normalize_y:
-                Y = [SEVIRGenerator.normalize(Y[k],s) for k,s in enumerate(self.normalize_y)]
-            return X,Y
-        else:
-            return X  
+        return self.get_batch(idx,return_meta=False)  
         
-    def get_sevir_metadata(self,idx):
-        """
-        Returns the SEVIR IDs for batch index
-        """
-        cols = ['time_utc','episode_id','event_id','event_type',
-                'llcrnrlat','llcrnrlon','urcrnrlat','urcrnrlon','proj','height_m','width_m']            
-        batch = self._get_batch_samples(idx)
-        imgtyps = np.unique([x.split('_')[0] for x in list(batch.keys())])
-        meta=[]
-        for k,i in enumerate([v[0] for v in batch.index.values]):
-            m = self.catalog[self.catalog.id==i].iloc[0][cols]
-            if self.unwrap_time: # adjust time
-                m['time_utc']+=pd.Timedelta(seconds=FRAME_TIMES[batch.iloc[k][f'{imgtyps[0]}_time_index']])
-            meta.append(m)
-        return pd.DataFrame(meta)
         
     def _get_batch_samples(self,idx):
         return self._samples.iloc[idx * self.batch_size:(idx + 1) * self.batch_size]
@@ -449,19 +479,6 @@ class SEVIRGenerator():
             if verbose:
                 print('Opening HDF5 file for reading',f)
             self._hdf_files[f] = h5py.File(self.sevir_data_home+'/'+f,'r')
-
-    def save(self,filename):
-        """
-        Saves generator to a file for easier reloading
-        """
-        self.close()
-        pickle.dump(open(filename,'wb'))
-        self._open_files(verbose=False)
-    
-    @staticmethod
-    def load(filename):
-        gen = pickle.load(open(filename,'rb'))
-        gen._open_files()
     
     @staticmethod
     def get_types():

@@ -37,11 +37,13 @@ def vil_cmap(encoded=True):
              [0.9411764705882353,  0.43137254901960786, 0.0],
              [0.6274509803921569,  0.0, 0.0],
              [0.9058823529411765,  0.0, 1.0]]
-    lev = [0.0, 16.0, 31.0, 59.0, 74.0, 100.0, 133.0, 160.0, 181.0, 219.0, 255.0]
+    lev = [16.0, 31.0, 59.0, 74.0, 100.0, 133.0, 160.0, 181.0, 219.0, 255.0]
     #TODO:  encoded=False
     nil = cols.pop(0)
+    #nil=cols[0]
     under = cols[0]
     over = cols.pop()
+    #over=cols[-1]
     cmap=mpl.colors.ListedColormap(cols)
     cmap.set_bad(nil)
     cmap.set_under(under)

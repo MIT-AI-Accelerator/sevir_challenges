@@ -11,7 +11,7 @@ from .display import get_cmap
 import cartopy.feature as cfeature
 
 def make_animation(frames,meta,img_type='vil',fig=None,
-                   interval=100,**kwargs):
+                   interval=100,title=None,**kwargs):
     """
     frames: numpy array
        [1,L,W,T] tensor, where T represents time steps
@@ -50,6 +50,8 @@ def make_animation(frames,meta,img_type='vil',fig=None,
     #ax.add_feature(cfeature.BORDERS )
     ax.add_feature(cfeature.LAKES, alpha=0.5)
     ax.add_feature(cfeature.RIVERS)
+    if title:
+        ax.set_title(title)
 
     def init():
         return (im,)

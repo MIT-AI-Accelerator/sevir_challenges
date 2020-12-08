@@ -29,8 +29,8 @@ def parse_args():
   parser.add_argument('--n_test',type=int,help='Maximum number of samples to use for testing (None=all)',default=None)
   parser.add_argument('--n_chunks', type=int, help='Number of chucks to use (increase if memory limited)',default=20)
   parser.add_argument('--split_date', type=str, help='Day (yymmdd) to split train and test',default='190601')
+  parser.add_argument('--append',action='store_true',help='Wrtie chunks into one single file instead of individual files')
     
-
   args = parser.parse_args()
   return args
 
@@ -56,19 +56,23 @@ def main(args):
     
     logger.info('Reading/writing training data to %s' % ('%s/nowcast_training.h5' % args.output_location))
     read_write_chunks('%s/nowcast_training.h5' % args.output_location,trn_generator,args.n_chunks,
-                      args.input_types, args.output_types)
+                      args.input_types, args.output_types,append=args.append)
     logger.info('Reading/writing testing data to %s' % ('%s/nowcast_testing.h5' % args.output_location))
     read_write_chunks('%s/nowcast_testing.h5' % args.output_location,tst_generator,args.n_chunks,
-                      args.input_types, args.output_types)
+                      args.input_types, args.output_types,append=args.append)
 
 
-def read_write_chunks( filename, generator, n_chunks, input_types, output_types ):
+def read_write_chunks( out_filename, generator, n_chunks, input_types, output_types, append=False ):
     logger = logging.getLogger(__name__)
     chunksize = len(generator)//n_chunks
     # get first chunk
     logger.info('Gathering chunk 0/%s:' % n_chunks)
     X,Y=generator.load_batches(n_batches=chunksize,offset=0,progress_bar=True)
+
     # Create datasets
+    fn,ext=os.path.splitext(out_filename)
+    cs = '' if append else '_000'
+    filename=fn+cs+ext
     for i,x in enumerate(X):
       with h5py.File(filename, 'w') as hf:
         hf.create_dataset('IN_%s' % input_types[i], data=x,  maxshape=(None,x.shape[1],x.shape[2],x.shape[3]))
@@ -77,22 +81,33 @@ def read_write_chunks( filename, generator, n_chunks, input_types, output_types 
         hf.create_dataset('OUT_%s' % output_types[i], data=y, maxshape=(None,y.shape[1],y.shape[2],y.shape[3]))
     # Gather other chunks
     for c in range(1,n_chunks+1):
+      cs = '' if append else '_%.3d' % c
+      filename=fn+c+ext
       offset = c*chunksize
       n_batches = min(chunksize,len(generator)-offset)
       if n_batches<0: # all done
         break
       logger.info('Gathering chunk %d/%s:' % (c,n_chunks))
       X,Y=generator.load_batches(n_batches=n_batches,offset=offset,progress_bar=True)
-      for i,x in enumerate(X):
-        with h5py.File(filename, 'a') as hf:
-          k='IN_%s' % input_types[i]
-          hf[k].resize((hf[k].shape[0] + x.shape[0]), axis = 0)
-          hf[k][-x.shape[0]:]  = x
-      for i,y in enumerate(Y):
-        with h5py.File(filename, 'a') as hf:
-          k='OUT_%s' % output_types[i]
-          hf[k].resize((hf[k].shape[0] + y.shape[0]), axis = 0)
-          hf[k][-y.shape[0]:]  = y
+      if append:
+        for i,x in enumerate(X):
+          with h5py.File(filename, 'a') as hf:
+            k='IN_%s' % input_types[i]
+            hf[k].resize((hf[k].shape[0] + x.shape[0]), axis = 0)
+            hf[k][-x.shape[0]:]  = x
+        for i,y in enumerate(Y):
+          with h5py.File(filename, 'a') as hf:
+            k='OUT_%s' % output_types[i]
+            hf[k].resize((hf[k].shape[0] + y.shape[0]), axis = 0)
+            hf[k][-y.shape[0]:]  = y
+      else: # write to a new file
+        for i,x in enumerate(X):
+          with h5py.File(filename, 'w') as hf:
+            hf.create_dataset('IN_%s' % input_types[i], data=x,  maxshape=(None,x.shape[1],x.shape[2],x.shape[3]))
+        for i,y in enumerate(Y):
+          with h5py.File(filename, 'a') as hf:
+            hf.create_dataset('OUT_%s' % output_types[i], data=y, maxshape=(None,y.shape[1],y.shape[2],y.shape[3]))
+
 
 
 class NowcastGenerator(SEVIRGenerator):

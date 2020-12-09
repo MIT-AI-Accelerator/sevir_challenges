@@ -1,0 +1,6 @@
+# Radar Nowcast Challenge
+
+The radar nowcast challenge is to generate future radar imagery given previous radar and satellite imagery as input.
+
+
+This challenge is still in development.  See [RadarNowcastChallenge notebook]() for a description of the datasets, problem, baseline model, and metrics.

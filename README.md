@@ -1,6 +1,9 @@
 # sevir_challenges
 A collection of challenges and baseline models for the SEVIR weather dataset.
 
+* [Radar Nowcasting](radar_nowcasting/README.md)
+* Others coming soon
+
 ## Obtaining SEVIR data
 
 The challenges in this repo are based on the [SEVIR weather dataset](https://proceedings.neurips.cc//paper/2020/hash/fa78a16157fed00d7a80515818432169-Abstract.html).  This dataset is made of up sequences of weather imagery sampled and aligned across radar and satellite.   It was constucted as a benchmark dataset to support algorithm development in meterology. For a detailed tutorial on this dataset, see [the SEVIR tutorial.](https://nbviewer.jupyter.org/github/MIT-AI-Accelerator/eie-sevir/blob/master/examples/SEVIR_Tutorial.ipynb)

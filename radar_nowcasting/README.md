@@ -1,4 +1,4 @@
-# Radar Nowcast Challenge
+# Radar Nowcast Challenge [BETA]
 
 The radar nowcast challenge is to generate future radar imagery given previous radar and satellite imagery as input.
 

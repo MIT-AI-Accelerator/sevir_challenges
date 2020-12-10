@@ -211,10 +211,10 @@ class SEVIRGenerator():
         
     def get_batch_metadata(self,idx):
         """
-        Returns the SEVIR IDs for batch index
+        Returns the SEVIR metadata for batch index
         """
         # return only these cols (independent of img_type)
-        cols = ['time_utc','episode_id','event_id','event_type','minute_offsets',
+        cols = ['id','time_utc','episode_id','event_id','event_type','minute_offsets',
                 'llcrnrlat','llcrnrlon','urcrnrlat','urcrnrlon','proj','height_m','width_m']            
         batch = self._get_batch_samples(idx)
         imgtyps = np.unique([x.split('_')[0] for x in list(batch.keys())])
@@ -292,6 +292,7 @@ class SEVIRGenerator():
                 
         else:
             X,Y=None,None
+            meta=None
             for i in RW( range(offset,offset+n_batches) ):
                 Xi,Yi = self.get_batch(i,return_meta=False)
                 if X is None:

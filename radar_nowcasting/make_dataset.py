@@ -27,9 +27,10 @@ def parse_args():
   parser.add_argument('--output_location', type=str, help='location of SEVIR dataset',default='../../data/processeed')
   parser.add_argument('--n_train',type=int,help='Maximum number of samples to use for training (None=all)',default=None)
   parser.add_argument('--n_test',type=int,help='Maximum number of samples to use for testing (None=all)',default=None)
-  parser.add_argument('--n_chunks', type=int, help='Number of chucks to use (increase if memory limited)',default=20)
+  parser.add_argument('--n_chunks', type=int, help='Number of chucks to use (increase if memory limited)',default=8)
   parser.add_argument('--split_date', type=str, help='Day (yymmdd) to split train and test',default='190601')
   parser.add_argument('--append',action='store_true',help='Wrtie chunks into one single file instead of individual files')
+  parser.add_argument('--shuffle',action='store_true',help='Shuffle dataset before writing to h5 files')
     
   args = parser.parse_args()
   return args
@@ -47,12 +48,14 @@ def main(args):
                                                 sevir_location=args.sevir_data,
                                                 x_types=args.input_types,
                                                 y_types=args.output_types,
-                                                end_date=split_date)
+                                                end_date=split_date,
+                                                shuffle=args.shuffle)
     tst_generator = get_nowcast_test_generator(sevir_catalog=args.sevir_catalog,
                                                sevir_location=args.sevir_data,
                                                x_types=args.input_types,
                                                y_types=args.output_types,
-                                               start_date=split_date )
+                                               start_date=split_date,
+                                               shuffle=args.shuffle)
     
     logger.info('Reading/writing training data to %s' % ('%s/nowcast_training.h5' % args.output_location))
     read_write_chunks('%s/nowcast_training.h5' % args.output_location,trn_generator,args.n_chunks,
@@ -67,29 +70,32 @@ def read_write_chunks( out_filename, generator, n_chunks, input_types, output_ty
     chunksize = len(generator)//n_chunks
     # get first chunk
     logger.info('Gathering chunk 0/%s:' % n_chunks)
-    X,Y=generator.load_batches(n_batches=chunksize,offset=0,progress_bar=True)
+    (X,Y),meta=generator.load_batches(n_batches=chunksize,offset=0,progress_bar=True,return_meta=True)
 
     # Create datasets
     fn,ext=os.path.splitext(out_filename)
     cs = '' if append else '_000'
     filename=fn+cs+ext
     for i,x in enumerate(X):
-      with h5py.File(filename, 'w') as hf:
+      with h5py.File(filename, 'w' if i==0 else 'a') as hf:
         hf.create_dataset('IN_%s' % input_types[i], data=x,  maxshape=(None,x.shape[1],x.shape[2],x.shape[3]))
     for i,y in enumerate(Y):
       with h5py.File(filename, 'a') as hf:
         hf.create_dataset('OUT_%s' % output_types[i], data=y, maxshape=(None,y.shape[1],y.shape[2],y.shape[3]))
+    if not append:
+      meta.to_csv(fn+cs+'_META.csv')
     # Gather other chunks
     for c in range(1,n_chunks+1):
       cs = '' if append else '_%.3d' % c
-      filename=fn+c+ext
+      filename=fn+cs+ext
       offset = c*chunksize
       n_batches = min(chunksize,len(generator)-offset)
       if n_batches<0: # all done
         break
       logger.info('Gathering chunk %d/%s:' % (c,n_chunks))
-      X,Y=generator.load_batches(n_batches=n_batches,offset=offset,progress_bar=True)
+      (X,Y),metac=generator.load_batches(n_batches=n_batches,offset=offset,progress_bar=True,return_meta=True)
       if append:
+        meta=pd.concat((meta,metac))
         for i,x in enumerate(X):
           with h5py.File(filename, 'a') as hf:
             k='IN_%s' % input_types[i]
@@ -102,12 +108,14 @@ def read_write_chunks( out_filename, generator, n_chunks, input_types, output_ty
             hf[k][-y.shape[0]:]  = y
       else: # write to a new file
         for i,x in enumerate(X):
-          with h5py.File(filename, 'w') as hf:
+          with h5py.File(filename, 'w' if i==0 else 'a') as hf:
             hf.create_dataset('IN_%s' % input_types[i], data=x,  maxshape=(None,x.shape[1],x.shape[2],x.shape[3]))
         for i,y in enumerate(Y):
           with h5py.File(filename, 'a') as hf:
             hf.create_dataset('OUT_%s' % output_types[i], data=y, maxshape=(None,y.shape[1],y.shape[2],y.shape[3]))
-
+        metac.to_csv(fn+cs+'_META.csv')
+    if append:
+        meta.to_csv(fn+cs+'_META.csv')
 
 
 class NowcastGenerator(SEVIRGenerator):
@@ -121,25 +129,36 @@ class NowcastGenerator(SEVIRGenerator):
                                           [-----13----][----12----]
     """
     def get_batch(self, idx,return_meta=False):
+        """
+        Splits batch into three hour-long past/future sequences
+        """
         (X,_),meta = super(NowcastGenerator, self).get_batch(idx,return_meta=True)  # N,L,W,49
         x_out,y_out=[],[]
         for t in range(len(X)):
-          x1,x2,x3 = X[0][:,:,:,:13],X[0][:,:,:,12:25],X[0][:,:,:,24:37]
-          y1,y2,y3 = X[0][:,:,:,13:25],X[0][:,:,:,25:37],X[0][:,:,:,37:49]
+          x1,x2,x3 = X[t][:,:,:,:13],X[t][:,:,:,12:25],X[t][:,:,:,24:37]
+          y1,y2,y3 = X[t][:,:,:,13:25],X[t][:,:,:,25:37],X[t][:,:,:,37:49]
           Xnew = np.concatenate((x1,x2,x3),axis=0)
           Ynew = np.concatenate((y1,y2,y3),axis=0)
           x_out.append(Xnew)
-          y_out.append(Ynew)
+          if self.x_img_types[t] in self.y_img_types:
+            y_out.append(Ynew)
         if return_meta:
-            # meta is duplicated three times, with adjusted times
-            meta['minute_offsets']=':'.join([str(n) for n in range(-60,65,5)])
-            meta1,meta2,meta3=meta,meta,meta
-            meta1['time_utc'] = meta['time_utc'] - pd.Timedelta(hours=1)
-            meta3['time_utc'] = meta['time_utc'] + pd.Timedelta(hours=1)
-            return (x_out,y_out),pd.concat((meta1,meta2,meta3))
+            return (x_out,y_out),meta
         else:
             return x_out,y_out
-
+    
+    def get_batch_metadata(self,idx):
+        """
+        Duplicates meta three times and adjusts time stamps
+        """
+        meta = super(NowcastGenerator, self).get_batch_metadata(idx)
+        meta['minute_offsets']=':'.join([str(n) for n in range(-60,65,5)])
+        meta1,meta2,meta3=meta.copy(),meta.copy(),meta.copy()
+        meta1['time_utc'] = meta['time_utc'] - pd.Timedelta(hours=1)
+        meta3['time_utc'] = meta['time_utc'] + pd.Timedelta(hours=1)
+        return pd.concat((meta1,meta2,meta3))
+        
+        
 def get_nowcast_train_generator(sevir_catalog,
                                 sevir_location,
                                 x_types=['vil'],

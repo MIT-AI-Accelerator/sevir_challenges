@@ -9,4 +9,5 @@ pytorch
 torchvision
 tqdm
 h5py
+boto3
 

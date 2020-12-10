@@ -1,5 +1,6 @@
 # don't want these checked in
 data/
+experiments/
 logs/
 __pycache__/
 

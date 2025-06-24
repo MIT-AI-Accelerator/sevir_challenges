@@ -1,8 +1,5 @@
 # sevir_challenges
-A collection of challenges and baseline models for the SEVIR weather dataset.
-
-* [Radar Nowcasting](radar_nowcasting/README.md)
-* Others coming soon
+A [Radar Nowcasting](radar_nowcasting/README.md) challenge with baseline models for the SEVIR weather dataset.
 
 ## Obtaining SEVIR data
 

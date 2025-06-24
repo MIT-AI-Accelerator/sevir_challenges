@@ -1,5 +1,5 @@
 # SEVIR Forecasting Challenge
-A [Radar Nowcasting](radar_nowcasting/README.md) challenge with baseline models using the [SEVIR weather dataset](https://proceedings.neurips.cc/paper/2020/file/fa78a16157fed00d7a80515818432169-Paper.pdf).
+A [Radar Nowcasting](radar_nowcasting/README.md) challenge using the [SEVIR weather dataset](https://proceedings.neurips.cc/paper/2020/file/fa78a16157fed00d7a80515818432169-Paper.pdf).
 
 ## Obtaining SEVIR data
 
